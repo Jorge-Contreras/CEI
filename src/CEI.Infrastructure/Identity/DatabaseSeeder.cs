@@ -204,11 +204,30 @@ public sealed class DatabaseSeeder(
                     EmailConfirmed = true
                 };
 
-                var createResult = await userManager.CreateAsync(existing, seedOptions.Value.DemoPassword);
+                var createResult = await userManager.CreateAsync(existing);
                 if (!createResult.Succeeded)
                 {
                     throw new InvalidOperationException($"Unable to create demo user {seedUser.Email}: {string.Join(", ", createResult.Errors.Select(e => e.Description))}");
                 }
+            }
+
+            existing.UserName = seedUser.Email;
+            existing.Email = seedUser.Email;
+            existing.FullName = seedUser.FullName;
+            existing.EmailConfirmed = true;
+            existing.AccessFailedCount = 0;
+            existing.LockoutEnd = null;
+
+            // Demo accounts are rotated from local user-secrets and intentionally bypass
+            // interactive password validation so local development can use a shared password.
+            existing.PasswordHash = userManager.PasswordHasher.HashPassword(existing, seedOptions.Value.DemoPassword);
+            existing.SecurityStamp = Guid.NewGuid().ToString("N");
+            existing.ConcurrencyStamp = Guid.NewGuid().ToString("N");
+
+            var updateResult = await userManager.UpdateAsync(existing);
+            if (!updateResult.Succeeded)
+            {
+                throw new InvalidOperationException($"Unable to update demo user {seedUser.Email}: {string.Join(", ", updateResult.Errors.Select(e => e.Description))}");
             }
 
             if (!await userManager.IsInRoleAsync(existing, seedUser.RoleName))
