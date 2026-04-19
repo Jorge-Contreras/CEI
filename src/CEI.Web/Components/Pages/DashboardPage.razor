@@ -1,0 +1,204 @@
+@page "/"
+@page "/dashboard"
+@attribute [Authorize]
+@inject IDashboardService DashboardService
+@inject IReminderQueryService ReminderQueryService
+@inject ICaseManagementService CaseManagementService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Panel</PageTitle>
+
+<section class="hero-card">
+    <p class="eyebrow">Panel operativo</p>
+    <h1>Visión general del despacho</h1>
+    <p>Concentra asuntos activos, plazos próximos y actividad reciente para evitar omisiones.</p>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(LoadError))
+{
+    <div class="alert alert-danger mt-3">@LoadError</div>
+}
+else if (Model is null)
+{
+    <div class="page-loader">Cargando panel...</div>
+}
+else
+{
+    <div class="dashboard-metrics">
+        <div class="metric-card">
+            <span>Asuntos activos</span>
+            <strong>@Model.ActiveCases</strong>
+        </div>
+        <div class="metric-card accent">
+            <span>Próximos plazos</span>
+            <strong>@Model.UpcomingDeadlines</strong>
+        </div>
+        <div class="metric-card warning">
+            <span>Plazos vencidos</span>
+            <strong>@Model.OverdueDeadlines</strong>
+        </div>
+        <div class="metric-card dark">
+            <span>Recordatorios sin leer</span>
+            <strong>@Model.UnreadReminders.Count</strong>
+        </div>
+    </div>
+
+    <div class="content-grid mt-4">
+        <section class="panel-card">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Recordatorios</p>
+                    <h2>Atención inmediata</h2>
+                </div>
+            </div>
+
+            @if (Model.UnreadReminders.Count == 0)
+            {
+                <div class="empty-state">
+                    <strong>Sin recordatorios pendientes.</strong>
+                    <p>Los avisos aparecerán aquí cuando un plazo requiera atención.</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var reminder in Model.UnreadReminders)
+                {
+                    <div class="reminder-card">
+                        <div>
+                            <strong>@reminder.Title</strong>
+                            <p>@reminder.Message</p>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-outline-dark" @onclick="() => OpenCase(reminder.CaseId)">Ver asunto</button>
+                            <button class="btn btn-sm btn-dark" @onclick="() => MarkReminderAsRead(reminder.ReminderId)">Marcar leído</button>
+                        </div>
+                    </div>
+                }
+            }
+        </section>
+
+        <section class="panel-card">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Actividad</p>
+                    <h2>Asuntos recientes</h2>
+                </div>
+            </div>
+
+            @foreach (var recent in Model.RecentlyUpdatedCases)
+            {
+                <button class="list-row-button" @onclick="() => OpenCase(recent.CaseId)">
+                    <div>
+                        <strong>@recent.InternalCode</strong>
+                        <p>@recent.Title</p>
+                    </div>
+                    <div class="text-end">
+                        <StatusBadge Text="@recent.StatusName" CssClass="status-neutral" />
+                        <small>@recent.UpdatedOnUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small>
+                    </div>
+                </button>
+            }
+        </section>
+    </div>
+
+    <div class="content-grid mt-4">
+        <section class="panel-card">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Plazos</p>
+                    <h2>Próximos 14 días</h2>
+                </div>
+            </div>
+
+            @if (Model.UpcomingItems.Count == 0)
+            {
+                <div class="empty-state">
+                    <strong>Sin plazos próximos.</strong>
+                    <p>Cuando existan vencimientos próximos se mostrarán aquí.</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var deadline in Model.UpcomingItems)
+                {
+                    <button class="deadline-row" @onclick="() => OpenCase(deadline.CaseId)">
+                        <div>
+                            <strong>@deadline.CaseCode</strong>
+                            <p>@deadline.Description</p>
+                        </div>
+                        <div class="text-end">
+                            <StatusBadge Text="@deadline.DueDate.ToString("dd/MM/yyyy")" CssClass="status-warning" />
+                        </div>
+                    </button>
+                }
+            }
+        </section>
+
+        <section class="panel-card">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Riesgo</p>
+                    <h2>Plazos vencidos</h2>
+                </div>
+            </div>
+
+            @if (Model.OverdueItems.Count == 0)
+            {
+                <div class="empty-state">
+                    <strong>No hay plazos vencidos.</strong>
+                    <p>Buen trabajo: no hay tareas retrasadas en este momento.</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var deadline in Model.OverdueItems)
+                {
+                    <button class="deadline-row overdue" @onclick="() => OpenCase(deadline.CaseId)">
+                        <div>
+                            <strong>@deadline.CaseCode</strong>
+                            <p>@deadline.Description</p>
+                        </div>
+                        <div class="text-end">
+                            <StatusBadge Text="@deadline.DueDate.ToString("dd/MM/yyyy")" CssClass="status-danger" />
+                        </div>
+                    </button>
+                }
+            }
+        </section>
+    </div>
+}
+
+@code {
+    private DashboardSummaryDto? Model { get; set; }
+
+    private string? LoadError { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            LoadError = null;
+            Model = await DashboardService.GetAsync();
+        }
+        catch (Exception ex)
+        {
+            LoadError = ex.Message;
+        }
+    }
+
+    private async Task MarkReminderAsRead(Guid reminderId)
+    {
+        await CaseManagementService.SetReminderReadAsync(reminderId);
+        await LoadAsync();
+    }
+
+    private void OpenCase(Guid caseId)
+    {
+        NavigationManager.NavigateTo($"/cases/{caseId}");
+    }
+}

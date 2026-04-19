@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CEI.Application/CEI.Application.csproj" />
+    <Project Path="src/CEI.Domain/CEI.Domain.csproj" />
+    <Project Path="src/CEI.Infrastructure/CEI.Infrastructure.csproj" />
+    <Project Path="src/CEI.Web/CEI.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CEI.Application.Tests/CEI.Application.Tests.csproj" />
+    <Project Path="tests/CEI.Domain.Tests/CEI.Domain.Tests.csproj" />
+    <Project Path="tests/CEI.IntegrationTests/CEI.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

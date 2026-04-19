@@ -1,0 +1,288 @@
+@page "/cases/new"
+@page "/cases/{Id:guid}/edit"
+@attribute [Authorize(Policy = "Permission:cases.manage")]
+@inject ICaseManagementService CaseManagementService
+@inject ILookupService LookupService
+@inject IUserDirectoryService UserDirectoryService
+@inject NavigationManager NavigationManager
+
+<PageTitle>@(Id is null ? "Nuevo asunto" : "Editar asunto")</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">Configuración del expediente</p>
+        <h1>@(Id is null ? "Nuevo asunto" : "Editar asunto")</h1>
+        <p>Captura la ficha maestra del expediente y define responsables operativos.</p>
+    </div>
+    <a class="btn btn-outline-dark" href="/cases">Volver</a>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger mt-3">@ErrorMessage</div>
+}
+
+@if (!IsReady)
+{
+    <div class="page-loader">Cargando formulario...</div>
+}
+else
+{
+    <EditForm Model="Model" OnValidSubmit="SaveAsync" class="panel-card">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="form-grid">
+            <div class="form-span-2">
+                <label class="form-label">Título</label>
+                <InputText class="form-control" @bind-Value="Model.Title" />
+            </div>
+            <div>
+                <label class="form-label">No. expediente externo</label>
+                <InputText class="form-control" @bind-Value="Model.ExternalCaseNumber" />
+            </div>
+            <div>
+                <label class="form-label">Materia</label>
+                <InputSelect class="form-select" @bind-Value="Model.CaseCategoryId">
+                    @foreach (var option in Categories)
+                    {
+                        <option value="@option.Id">@option.Name</option>
+                    }
+                </InputSelect>
+            </div>
+            <div>
+                <label class="form-label">Estatus</label>
+                <InputSelect class="form-select" @bind-Value="Model.CaseStatusId">
+                    @foreach (var option in Statuses)
+                    {
+                        <option value="@option.Id">@option.Name</option>
+                    }
+                </InputSelect>
+            </div>
+            <div>
+                <label class="form-label">Jurisdicción</label>
+                <InputSelect class="form-select" @bind-Value="Model.JurisdictionLevel">
+                    <option value="@JurisdictionLevel.State">Estatal</option>
+                    <option value="@JurisdictionLevel.Federal">Federal</option>
+                </InputSelect>
+            </div>
+            <div>
+                <label class="form-label">Plantilla procesal</label>
+                <InputSelect class="form-select" @bind-Value="Model.ProcedureTemplateId">
+                    @foreach (var option in ProcedureTemplates)
+                    {
+                        <option value="@option.Id">@option.Name</option>
+                    }
+                </InputSelect>
+            </div>
+            <div>
+                <label class="form-label">Estado / sede</label>
+                <InputText class="form-control" @bind-Value="Model.VenueState" />
+            </div>
+            <div>
+                <label class="form-label">Órgano / juzgado</label>
+                <InputText class="form-control" @bind-Value="Model.VenueName" />
+            </div>
+            <div>
+                <label class="form-label">Fecha de apertura</label>
+                <InputDate class="form-control" @bind-Value="Model.OpenDate" />
+            </div>
+            <div>
+                <label class="form-label">Fecha de cierre</label>
+                <InputDate class="form-control" @bind-Value="Model.CloseDate" />
+            </div>
+            <div>
+                <label class="form-label">Abogado responsable</label>
+                <InputSelect class="form-select" @bind-Value="Model.ResponsibleLawyerId">
+                    @foreach (var user in Users)
+                    {
+                        <option value="@user.Id">@user.FullName</option>
+                    }
+                </InputSelect>
+            </div>
+            <div class="d-flex align-items-center pt-4">
+                <label class="form-check">
+                    <InputCheckbox class="form-check-input" @bind-Value="Model.IsSensitive" />
+                    <span class="form-check-label ms-2">Asunto sensible</span>
+                </label>
+            </div>
+            <div class="form-span-2">
+                <label class="form-label">Resumen</label>
+                <InputTextArea class="form-control" rows="4" @bind-Value="Model.Summary" />
+            </div>
+            <div class="form-span-2">
+                <label class="form-label">Notas</label>
+                <InputTextArea class="form-control" rows="4" @bind-Value="Model.Notes" />
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <p class="eyebrow">Equipo asignado</p>
+            <div class="assignment-grid">
+                @foreach (var user in Users.Where(u => u.Id != Model.ResponsibleLawyerId))
+                {
+                    <label class="assignment-pill">
+                        <input type="checkbox" checked="@SelectedStaffIds.Contains(user.Id)" @onchange="args => ToggleStaff(user.Id, args.Value)" />
+                        <span>@user.FullName</span>
+                    </label>
+                }
+            </div>
+        </div>
+
+        <div class="mt-4 d-flex gap-2">
+            <button class="btn btn-dark" type="submit">Guardar asunto</button>
+            <a class="btn btn-outline-dark" href="/cases">Cancelar</a>
+        </div>
+    </EditForm>
+}
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private CaseEditorModel Model { get; set; } = new();
+    private bool IsReady { get; set; }
+    private string? ErrorMessage { get; set; }
+    private IReadOnlyList<LookupOptionDto> Categories { get; set; } = [];
+    private IReadOnlyList<LookupOptionDto> Statuses { get; set; } = [];
+    private IReadOnlyList<LookupOptionDto> ProcedureTemplates { get; set; } = [];
+    private IReadOnlyList<UserOptionDto> Users { get; set; } = [];
+    private HashSet<Guid> SelectedStaffIds { get; } = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        Categories = await LookupService.GetCaseCategoriesAsync();
+        Statuses = await LookupService.GetCaseStatusesAsync();
+        ProcedureTemplates = await LookupService.GetProcedureTemplatesAsync();
+        Users = await UserDirectoryService.GetAssignableUsersAsync();
+
+        if (Users.Count > 0 && Model.ResponsibleLawyerId == Guid.Empty)
+        {
+            Model.ResponsibleLawyerId = Users[0].Id;
+        }
+
+        if (Id.HasValue)
+        {
+            var detail = await CaseManagementService.GetCaseDetailAsync(Id.Value);
+            if (detail is not null)
+            {
+                Model = new CaseEditorModel
+                {
+                    Id = detail.Id,
+                    ExternalCaseNumber = detail.ExternalCaseNumber,
+                    Title = detail.Title,
+                    Summary = detail.Summary,
+                    Notes = detail.Notes,
+                    CaseCategoryId = detail.CaseCategoryId,
+                    CaseStatusId = detail.CaseStatusId,
+                    JurisdictionLevel = detail.JurisdictionLevel,
+                    VenueState = detail.VenueState,
+                    VenueName = detail.VenueName,
+                    ProcedureTemplateId = detail.ProcedureTemplateId,
+                    IsSensitive = detail.IsSensitive,
+                    OpenDate = detail.OpenDate,
+                    CloseDate = detail.CloseDate,
+                    ResponsibleLawyerId = detail.ResponsibleLawyerId
+                };
+
+                SelectedStaffIds.Clear();
+                foreach (var assignment in detail.Assignments.Where(a => a.RoleType == "Staff"))
+                {
+                    SelectedStaffIds.Add(assignment.UserId);
+                }
+            }
+        }
+
+        if (!Id.HasValue)
+        {
+            Model.CaseCategoryId = Categories.FirstOrDefault()?.Id ?? 0;
+            Model.CaseStatusId = Statuses.FirstOrDefault()?.Id ?? 0;
+            Model.ProcedureTemplateId = ProcedureTemplates.FirstOrDefault()?.Id ?? 0;
+            Model.OpenDate = DateOnly.FromDateTime(DateTime.Today);
+        }
+
+        IsReady = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            ErrorMessage = null;
+            var id = await CaseManagementService.SaveCaseAsync(new SaveCaseRequest
+            {
+                Id = Model.Id,
+                ExternalCaseNumber = Model.ExternalCaseNumber,
+                Title = Model.Title,
+                Summary = Model.Summary,
+                Notes = Model.Notes,
+                CaseCategoryId = Model.CaseCategoryId,
+                CaseStatusId = Model.CaseStatusId,
+                JurisdictionLevel = Model.JurisdictionLevel,
+                VenueState = Model.VenueState,
+                VenueName = Model.VenueName,
+                ProcedureTemplateId = Model.ProcedureTemplateId,
+                IsSensitive = Model.IsSensitive,
+                OpenDate = Model.OpenDate,
+                CloseDate = Model.CloseDate,
+                ResponsibleLawyerId = Model.ResponsibleLawyerId,
+                AssignedStaffIds = SelectedStaffIds.ToList()
+            });
+
+            NavigationManager.NavigateTo($"/cases/{id}");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+    }
+
+    private void ToggleStaff(Guid userId, object? value)
+    {
+        if (value is true)
+        {
+            SelectedStaffIds.Add(userId);
+        }
+        else
+        {
+            SelectedStaffIds.Remove(userId);
+        }
+    }
+
+    private sealed class CaseEditorModel
+    {
+        public Guid? Id { get; set; }
+
+        [Required]
+        public string Title { get; set; } = string.Empty;
+
+        public string? ExternalCaseNumber { get; set; }
+
+        [Required]
+        public string Summary { get; set; } = string.Empty;
+
+        public string? Notes { get; set; }
+
+        public int CaseCategoryId { get; set; }
+
+        public int CaseStatusId { get; set; }
+
+        public JurisdictionLevel JurisdictionLevel { get; set; } = JurisdictionLevel.State;
+
+        [Required]
+        public string VenueState { get; set; } = string.Empty;
+
+        [Required]
+        public string VenueName { get; set; } = string.Empty;
+
+        public int ProcedureTemplateId { get; set; }
+
+        public bool IsSensitive { get; set; }
+
+        public DateOnly OpenDate { get; set; }
+
+        public DateOnly? CloseDate { get; set; }
+
+        public Guid ResponsibleLawyerId { get; set; }
+    }
+}

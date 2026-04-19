@@ -1,0 +1,12 @@
+@if (!string.IsNullOrWhiteSpace(Text))
+{
+    <span class="status-badge @CssClass">@Text</span>
+}
+
+@code {
+    [Parameter]
+    public string Text { get; set; } = string.Empty;
+
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+}

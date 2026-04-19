@@ -1,0 +1,614 @@
+@page "/cases/{Id:guid}"
+@attribute [Authorize]
+@inject ICaseManagementService CaseManagementService
+@inject ILookupService LookupService
+@inject IUserDirectoryService UserDirectoryService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Detalle del asunto</PageTitle>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger">@ErrorMessage</div>
+}
+else if (Model is null)
+{
+    <div class="page-loader">Cargando expediente...</div>
+}
+else
+{
+    <section class="page-heading">
+        <div>
+            <p class="eyebrow">Expediente</p>
+            <h1>@Model.InternalCode</h1>
+            <p>@Model.Title</p>
+        </div>
+        <div class="d-flex gap-2">
+            <AuthorizeView Policy="@PermissionPolicy.For(PermissionKeys.ManageCases)">
+                <Authorized Context="manageCaseState">
+                    <a class="btn btn-dark" href="/cases/@Model.Id/edit">Editar asunto</a>
+                </Authorized>
+            </AuthorizeView>
+            <a class="btn btn-outline-dark" href="/cases">Volver</a>
+        </div>
+    </section>
+
+    <div class="detail-grid">
+        <section class="panel-card">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Ficha maestra</p>
+                    <h2>Información general</h2>
+                </div>
+            </div>
+
+            <dl class="detail-list">
+                <div><dt>Expediente externo</dt><dd>@(Model.ExternalCaseNumber ?? "Sin capturar")</dd></div>
+                <div><dt>Materia</dt><dd>@Model.CaseCategoryName</dd></div>
+                <div><dt>Estatus</dt><dd>@Model.CaseStatusName</dd></div>
+                <div><dt>Jurisdicción</dt><dd>@(Model.JurisdictionLevel == JurisdictionLevel.State ? "Estatal" : "Federal")</dd></div>
+                <div><dt>Plantilla</dt><dd>@Model.ProcedureTemplateName</dd></div>
+                <div><dt>Sede</dt><dd>@Model.VenueState - @Model.VenueName</dd></div>
+                <div><dt>Apertura</dt><dd>@Model.OpenDate.ToString("dd/MM/yyyy")</dd></div>
+                <div><dt>Cierre</dt><dd>@(Model.CloseDate?.ToString("dd/MM/yyyy") ?? "Activo")</dd></div>
+                <div><dt>Responsable</dt><dd>@Model.ResponsibleLawyerName</dd></div>
+                <div><dt>Sensibilidad</dt><dd>@(Model.IsSensitive ? "Sensible" : "Normal")</dd></div>
+            </dl>
+
+            <div class="mt-3">
+                <strong>Resumen</strong>
+                <p class="mt-2">@Model.Summary</p>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(Model.Notes))
+            {
+                <div class="mt-3">
+                    <strong>Notas</strong>
+                    <p class="mt-2">@Model.Notes</p>
+                </div>
+            }
+
+            <div class="mt-3">
+                <strong>Equipo asignado</strong>
+                <div class="assignment-grid mt-2">
+                    @foreach (var assignment in Model.Assignments)
+                    {
+                        <span class="assignment-pill static">@assignment.UserName · @GetAssignmentRoleLabel(assignment.RoleType)</span>
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="panel-card">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Flujo</p>
+                    <h2>Línea del tiempo procesal</h2>
+                </div>
+            </div>
+            <CaseTimeline Events="Model.Events" />
+        </section>
+    </div>
+
+    <div class="detail-grid mt-4">
+        <section class="panel-card">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Historia procesal</p>
+                    <h2>Eventos</h2>
+                </div>
+            </div>
+
+            @foreach (var entry in Model.Events)
+            {
+                <article class="event-card" id="event-@entry.Id">
+                    <div class="d-flex justify-content-between flex-wrap gap-2">
+                        <div>
+                            <strong>@entry.Title</strong>
+                            <p>@entry.EventTypeName · @entry.EventDate.ToString("dd/MM/yyyy")</p>
+                        </div>
+                        @if (entry.OptionalDeadlineDate.HasValue)
+                        {
+                            <StatusBadge Text="@($"Plazo sugerido {entry.OptionalDeadlineDate:dd/MM/yyyy}")" CssClass="status-warning" />
+                        }
+                    </div>
+                    <p>@entry.Description</p>
+                    @if (!string.IsNullOrWhiteSpace(entry.Notes))
+                    {
+                        <small>@entry.Notes</small>
+                    }
+                </article>
+            }
+
+            <AuthorizeView Policy="@PermissionPolicy.For(PermissionKeys.ManageCases)">
+                <Authorized Context="eventAuthState">
+                    <EditForm Model="EventModel" OnValidSubmit="AddEventAsync" class="subform">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+                        <h3>Agregar evento</h3>
+                        <div class="form-grid">
+                            <div>
+                                <label class="form-label">Tipo</label>
+                                <InputSelect class="form-select" @bind-Value="EventModel.CaseEventTypeId">
+                                    @foreach (var option in EventTypes)
+                                    {
+                                        <option value="@option.Id">@option.Name</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                            <div>
+                                <label class="form-label">Fecha</label>
+                                <InputDate class="form-control" @bind-Value="EventModel.EventDate" />
+                            </div>
+                            <div class="form-span-2">
+                                <label class="form-label">Título</label>
+                                <InputText class="form-control" @bind-Value="EventModel.Title" />
+                            </div>
+                            <div class="form-span-2">
+                                <label class="form-label">Descripción</label>
+                                <InputTextArea class="form-control" rows="3" @bind-Value="EventModel.Description" />
+                            </div>
+                            <div class="form-span-2">
+                                <label class="form-label">Notas</label>
+                                <InputTextArea class="form-control" rows="2" @bind-Value="EventModel.Notes" />
+                            </div>
+                            <div>
+                                <label class="form-label">Plazo asociado</label>
+                                <InputDate class="form-control" @bind-Value="EventModel.OptionalDeadlineDate" />
+                            </div>
+                        </div>
+                        <button class="btn btn-dark mt-3" type="submit">Registrar evento</button>
+                    </EditForm>
+                </Authorized>
+            </AuthorizeView>
+        </section>
+
+        <section class="panel-card">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Control de plazos</p>
+                    <h2>Agenda procesal</h2>
+                </div>
+            </div>
+
+            @foreach (var deadline in Model.Deadlines.OrderBy(d => d.DueDate))
+            {
+                <div class="deadline-card">
+                    <div>
+                        <strong>@deadline.Description</strong>
+                        <p>Responsable: @deadline.ResponsibleUserName</p>
+                    </div>
+                    <div class="deadline-actions">
+                        <StatusBadge Text="@GetDeadlineLabel(deadline.Status)" CssClass="@GetDeadlineCss(deadline.Status)" />
+                        <small>@deadline.DueDate.ToString("dd/MM/yyyy")</small>
+                        <AuthorizeView Policy="@PermissionPolicy.For(PermissionKeys.ManageDeadlines)">
+                            <Authorized Context="deadlineButtonAuthState">
+                                <div class="d-flex gap-1">
+                                    <button class="btn btn-sm btn-outline-dark" @onclick="() => UpdateDeadlineStatusAsync(deadline.Id, DeadlineStatus.Completed)">Completar</button>
+                                    <button class="btn btn-sm btn-outline-dark" @onclick="() => UpdateDeadlineStatusAsync(deadline.Id, DeadlineStatus.Cancelled)">Cancelar</button>
+                                    <button class="btn btn-sm btn-outline-dark" @onclick="() => UpdateDeadlineStatusAsync(deadline.Id, DeadlineStatus.Pending)">Reabrir</button>
+                                </div>
+                            </Authorized>
+                        </AuthorizeView>
+                    </div>
+                </div>
+            }
+
+            <AuthorizeView Policy="@PermissionPolicy.For(PermissionKeys.ManageDeadlines)">
+                <Authorized Context="deadlineAuthState">
+                    <EditForm Model="DeadlineModel" OnValidSubmit="AddDeadlineAsync" class="subform">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+                        <h3>Agregar plazo</h3>
+                        <div class="form-grid">
+                            <div>
+                                <label class="form-label">Fecha de vencimiento</label>
+                                <InputDate class="form-control" @bind-Value="DeadlineModel.DueDate" />
+                            </div>
+                            <div>
+                                <label class="form-label">Responsable</label>
+                                <InputSelect class="form-select" @bind-Value="DeadlineModel.ResponsibleUserId">
+                                    @foreach (var user in Users)
+                                    {
+                                        <option value="@user.Id">@user.FullName</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                            <div>
+                                <label class="form-label">Evento relacionado</label>
+                                <InputSelect class="form-select" @bind-Value="DeadlineModel.RelatedCaseEventId">
+                                    <option value="">Sin vínculo</option>
+                                    @foreach (var evt in Model.Events)
+                                    {
+                                        <option value="@evt.Id">@evt.Title</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                            <div class="form-span-2">
+                                <label class="form-label">Descripción</label>
+                                <InputText class="form-control" @bind-Value="DeadlineModel.Description" />
+                            </div>
+                        </div>
+                        <button class="btn btn-dark mt-3" type="submit">Registrar plazo</button>
+                    </EditForm>
+                </Authorized>
+            </AuthorizeView>
+        </section>
+    </div>
+
+    <section class="panel-card mt-4">
+        <div class="section-header">
+            <div>
+                <p class="eyebrow">Documentación</p>
+                <h2>Registro documental</h2>
+            </div>
+        </div>
+
+        <div class="detail-grid">
+            <div>
+                @if (Model.Documents.Count == 0)
+                {
+                    <div class="empty-state">
+                        <strong>Sin documentos.</strong>
+                        <p>Registra documentos PDF o anexos de prueba para este expediente.</p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var document in Model.Documents)
+                    {
+                        <button class="document-row @(SelectedDocumentId == document.Id ? "selected" : string.Empty)" @onclick="() => SelectedDocumentId = document.Id">
+                            <div>
+                                <strong>@document.OriginalFileName</strong>
+                                <p>@document.CategoryName · @document.UploadedOnUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</p>
+                            </div>
+                            <div class="text-end">
+                                <StatusBadge Text="@document.ConfidentialityLevel.ToString()" CssClass="status-neutral" />
+                                @if (document.HasRestrictedRoles)
+                                {
+                                    <small>Roles restringidos</small>
+                                }
+                            </div>
+                        </button>
+                    }
+                }
+            </div>
+
+            <div>
+                @if (SelectedDocumentId.HasValue)
+                {
+                    <div class="document-preview-shell">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <strong>Vista previa</strong>
+                            <a class="btn btn-sm btn-outline-dark" href="/documents/@SelectedDocumentId/content?download=true" target="_blank">Descargar</a>
+                        </div>
+                        <iframe class="document-preview" src="/documents/@SelectedDocumentId/content"></iframe>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <strong>Selecciona un documento.</strong>
+                        <p>Podrás previsualizar PDFs y abrir el archivo completo.</p>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <AuthorizeView Policy="@PermissionPolicy.For(PermissionKeys.ManageDocuments)">
+            <Authorized Context="documentAuthState">
+                <EditForm Model="DocumentModel" OnValidSubmit="AddDocumentAsync" class="subform mt-4">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+                    <h3>Registrar documento</h3>
+                    <div class="form-grid">
+                        <div>
+                            <label class="form-label">Categoría</label>
+                            <InputSelect class="form-select" @bind-Value="DocumentModel.DocumentCategoryId">
+                                @foreach (var option in DocumentCategories)
+                                {
+                                    <option value="@option.Id">@option.Name</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div>
+                            <label class="form-label">Evento relacionado</label>
+                            <InputSelect class="form-select" @bind-Value="DocumentModel.CaseEventId">
+                                <option value="">Sin vínculo</option>
+                                @foreach (var evt in Model.Events)
+                                {
+                                    <option value="@evt.Id">@evt.Title</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div>
+                            <label class="form-label">Confidencialidad</label>
+                            <InputSelect class="form-select" @bind-Value="DocumentModel.ConfidentialityLevel">
+                                @foreach (var level in Enum.GetValues<DocumentConfidentialityLevel>())
+                                {
+                                    <option value="@level">@GetConfidentialityLabel(level)</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="form-span-2">
+                            <label class="form-label">Archivo</label>
+                            <InputFile OnChange="OnFileSelected" />
+                            @if (!string.IsNullOrWhiteSpace(SelectedFileName))
+                            {
+                                <small>@SelectedFileName</small>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="assignment-grid mt-3">
+                        @foreach (var role in RoleNames.All)
+                        {
+                            <label class="assignment-pill">
+                                <input type="checkbox" checked="@RestrictedRoles.Contains(role)" @onchange="args => ToggleRestrictedRole(role, args.Value)" />
+                                <span>@GetRoleLabel(role)</span>
+                            </label>
+                        }
+                    </div>
+
+                    <button class="btn btn-dark mt-3" type="submit">Guardar documento</button>
+                </EditForm>
+            </Authorized>
+        </AuthorizeView>
+    </section>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private CaseDetailDto? Model { get; set; }
+    private string? ErrorMessage { get; set; }
+    private IReadOnlyList<LookupOptionDto> EventTypes { get; set; } = [];
+    private IReadOnlyList<LookupOptionDto> DocumentCategories { get; set; } = [];
+    private IReadOnlyList<UserOptionDto> Users { get; set; } = [];
+    private EventFormModel EventModel { get; set; } = new();
+    private DeadlineFormModel DeadlineModel { get; set; } = new();
+    private DocumentFormModel DocumentModel { get; set; } = new();
+    private IBrowserFile? SelectedFile { get; set; }
+    private string? SelectedFileName { get; set; }
+    private Guid? SelectedDocumentId { get; set; }
+    private HashSet<string> RestrictedRoles { get; } = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        EventTypes = await LookupService.GetCaseEventTypesAsync();
+        DocumentCategories = await LookupService.GetDocumentCategoriesAsync();
+        Users = await UserDirectoryService.GetAssignableUsersAsync();
+
+        if (EventTypes.Count > 0)
+        {
+            EventModel.CaseEventTypeId = EventTypes[0].Id;
+        }
+
+        if (DocumentCategories.Count > 0)
+        {
+            DocumentModel.DocumentCategoryId = DocumentCategories[0].Id;
+        }
+
+        if (Users.Count > 0)
+        {
+            DeadlineModel.ResponsibleUserId = Users[0].Id;
+        }
+
+        EventModel.EventDate = DateOnly.FromDateTime(DateTime.Today);
+        DeadlineModel.DueDate = DateOnly.FromDateTime(DateTime.Today);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            ErrorMessage = null;
+            Model = await CaseManagementService.GetCaseDetailAsync(Id);
+            SelectedDocumentId ??= Model?.Documents.FirstOrDefault()?.Id;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+    }
+
+    private async Task AddEventAsync()
+    {
+        if (Model is null)
+        {
+            return;
+        }
+
+        await CaseManagementService.AddEventAsync(new AddCaseEventRequest
+        {
+            LegalCaseId = Model.Id,
+            CaseEventTypeId = EventModel.CaseEventTypeId,
+            EventDate = EventModel.EventDate,
+            Title = EventModel.Title,
+            Description = EventModel.Description,
+            Notes = EventModel.Notes,
+            OptionalDeadlineDate = EventModel.OptionalDeadlineDate
+        });
+
+        EventModel = new EventFormModel
+        {
+            EventDate = DateOnly.FromDateTime(DateTime.Today),
+            CaseEventTypeId = EventTypes.FirstOrDefault()?.Id ?? 0
+        };
+
+        await LoadAsync();
+    }
+
+    private async Task AddDeadlineAsync()
+    {
+        if (Model is null)
+        {
+            return;
+        }
+
+        await CaseManagementService.AddDeadlineAsync(new AddDeadlineRequest
+        {
+            LegalCaseId = Model.Id,
+            RelatedCaseEventId = DeadlineModel.RelatedCaseEventId,
+            ResponsibleUserId = DeadlineModel.ResponsibleUserId,
+            DueDate = DeadlineModel.DueDate,
+            Description = DeadlineModel.Description
+        });
+
+        DeadlineModel = new DeadlineFormModel
+        {
+            DueDate = DateOnly.FromDateTime(DateTime.Today),
+            ResponsibleUserId = Users.FirstOrDefault()?.Id ?? Guid.Empty
+        };
+
+        await LoadAsync();
+    }
+
+    private async Task AddDocumentAsync()
+    {
+        if (Model is null || SelectedFile is null)
+        {
+            ErrorMessage = "Selecciona un archivo antes de guardar.";
+            return;
+        }
+
+        await using var stream = SelectedFile.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+        await CaseManagementService.AddDocumentAsync(new AddDocumentRequest
+        {
+            LegalCaseId = Model.Id,
+            CaseEventId = DocumentModel.CaseEventId,
+            DocumentCategoryId = DocumentModel.DocumentCategoryId,
+            OriginalFileName = SelectedFile.Name,
+            ContentType = SelectedFile.ContentType,
+            ConfidentialityLevel = DocumentModel.ConfidentialityLevel,
+            RestrictedRoles = RestrictedRoles.ToList()
+        }, stream);
+
+        SelectedFile = null;
+        SelectedFileName = null;
+        RestrictedRoles.Clear();
+        DocumentModel = new DocumentFormModel
+        {
+            DocumentCategoryId = DocumentCategories.FirstOrDefault()?.Id ?? 0
+        };
+
+        await LoadAsync();
+    }
+
+    private async Task UpdateDeadlineStatusAsync(Guid deadlineId, DeadlineStatus status)
+    {
+        await CaseManagementService.UpdateDeadlineStatusAsync(new UpdateDeadlineStatusRequest
+        {
+            DeadlineId = deadlineId,
+            Status = status
+        });
+
+        await LoadAsync();
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs args)
+    {
+        SelectedFile = args.File;
+        SelectedFileName = args.File.Name;
+    }
+
+    private void ToggleRestrictedRole(string roleName, object? value)
+    {
+        if (value is true)
+        {
+            RestrictedRoles.Add(roleName);
+        }
+        else
+        {
+            RestrictedRoles.Remove(roleName);
+        }
+    }
+
+    private static string GetDeadlineCss(DeadlineStatus status) =>
+        status switch
+        {
+            DeadlineStatus.Completed => "status-positive",
+            DeadlineStatus.Overdue => "status-danger",
+            DeadlineStatus.Cancelled => "status-neutral",
+            _ => "status-warning"
+        };
+
+    private static string GetDeadlineLabel(DeadlineStatus status) =>
+        status switch
+        {
+            DeadlineStatus.Completed => "Completado",
+            DeadlineStatus.Overdue => "Vencido",
+            DeadlineStatus.Cancelled => "Cancelado",
+            _ => "Pendiente"
+        };
+
+    private static string GetAssignmentRoleLabel(string roleType) =>
+        roleType switch
+        {
+            "ResponsibleLawyer" => "Abogado responsable",
+            "Staff" => "Personal asignado",
+            "Contributor" => "Colaborador",
+            "Reader" => "Solo lectura",
+            _ => roleType
+        };
+
+    private static string GetConfidentialityLabel(DocumentConfidentialityLevel level) =>
+        level switch
+        {
+            DocumentConfidentialityLevel.Standard => "Normal",
+            DocumentConfidentialityLevel.Internal => "Interno",
+            DocumentConfidentialityLevel.Restricted => "Restringido",
+            DocumentConfidentialityLevel.HighlyRestricted => "Altamente restringido",
+            _ => level.ToString()
+        };
+
+    private static string GetRoleLabel(string roleName) =>
+        roleName switch
+        {
+            RoleNames.PrincipalLawyer => "Abogado principal",
+            RoleNames.Administrator => "Administrador",
+            RoleNames.Assistant => "Asistente",
+            RoleNames.Specialist => "Perito / especialista",
+            _ => roleName
+        };
+
+    private sealed class EventFormModel
+    {
+        public int CaseEventTypeId { get; set; }
+
+        public DateOnly EventDate { get; set; }
+
+        [Required]
+        public string Title { get; set; } = string.Empty;
+
+        [Required]
+        public string Description { get; set; } = string.Empty;
+
+        public string? Notes { get; set; }
+
+        public DateOnly? OptionalDeadlineDate { get; set; }
+    }
+
+    private sealed class DeadlineFormModel
+    {
+        public Guid? RelatedCaseEventId { get; set; }
+
+        public Guid ResponsibleUserId { get; set; }
+
+        public DateOnly DueDate { get; set; }
+
+        [Required]
+        public string Description { get; set; } = string.Empty;
+    }
+
+    private sealed class DocumentFormModel
+    {
+        public Guid? CaseEventId { get; set; }
+
+        public int DocumentCategoryId { get; set; }
+
+        public DocumentConfidentialityLevel ConfidentialityLevel { get; set; } = DocumentConfidentialityLevel.Standard;
+    }
+}

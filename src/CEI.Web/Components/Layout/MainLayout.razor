@@ -1,0 +1,54 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+
+<div class="app-shell">
+    <aside class="sidebar-panel">
+        <div class="brand-block">
+            <p class="eyebrow">Corporativo Estrategia Integral</p>
+            <h1>CEI</h1>
+            <p class="brand-subtitle">Control de expedientes, plazos y documentos.</p>
+        </div>
+
+        <nav class="nav-stack">
+            <NavLink class="nav-link-cei" href="/" Match="NavLinkMatch.All">Panel</NavLink>
+            <NavLink class="nav-link-cei" href="/cases">Asuntos</NavLink>
+            <AuthorizeView Policy="@PermissionPolicy.For(PermissionKeys.ManageCases)">
+                <Authorized>
+                    <NavLink class="nav-link-cei" href="/cases/new">Nuevo asunto</NavLink>
+                </Authorized>
+            </AuthorizeView>
+        </nav>
+
+        <AuthorizeView>
+            <Authorized Context="authState">
+                <div class="profile-card">
+                    <p class="profile-label">Sesión activa</p>
+                    <strong>@(authState.User.FindFirst("cei:full_name")?.Value ?? authState.User.Identity?.Name ?? "Usuario")</strong>
+                    <form method="post" action="/account/logout">
+                        <button class="btn btn-sm btn-outline-light w-100 mt-3" type="submit">Cerrar sesión</button>
+                    </form>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </aside>
+
+    <main class="workspace">
+        <div class="top-banner">
+            <div>
+                <p class="top-banner-label">Despacho</p>
+                <strong>Centro operativo legal</strong>
+            </div>
+            <button class="btn btn-light btn-sm" @onclick="@(() => Navigation.NavigateTo("/cases"))">Abrir expedientes</button>
+        </div>
+
+        <article class="workspace-content">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Ocurrió un error inesperado.
+    <a href="." class="reload">Recargar</a>
+    <span class="dismiss">x</span>
+</div>

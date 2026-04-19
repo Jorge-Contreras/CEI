@@ -1,0 +1,198 @@
+@page "/cases"
+@attribute [Authorize]
+@inject ICaseManagementService CaseManagementService
+@inject ILookupService LookupService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Asuntos</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">Expedientes</p>
+        <h1>Asuntos del despacho</h1>
+        <p>Filtra por estatus, materia, sensibilidad y plantilla procesal.</p>
+    </div>
+    <AuthorizeView Policy="@PermissionPolicy.For(PermissionKeys.ManageCases)">
+        <Authorized>
+            <a class="btn btn-dark" href="/cases/new">Crear asunto</a>
+        </Authorized>
+    </AuthorizeView>
+</section>
+
+<section class="panel-card">
+    <div class="filters-grid">
+        <div>
+            <label class="form-label">Buscar</label>
+            <InputText class="form-control" @bind-Value="Filter.Search" />
+        </div>
+        <div>
+            <label class="form-label">Estatus</label>
+            <InputSelect class="form-select" @bind-Value="Filter.CaseStatusId">
+                <option value="">Todos</option>
+                @foreach (var option in Statuses)
+                {
+                    <option value="@option.Id">@option.Name</option>
+                }
+            </InputSelect>
+        </div>
+        <div>
+            <label class="form-label">Materia</label>
+            <InputSelect class="form-select" @bind-Value="Filter.CaseCategoryId">
+                <option value="">Todas</option>
+                @foreach (var option in Categories)
+                {
+                    <option value="@option.Id">@option.Name</option>
+                }
+            </InputSelect>
+        </div>
+        <div>
+            <label class="form-label">Sensibilidad</label>
+            <InputSelect class="form-select" @bind-Value="SensitiveOption">
+                <option value="">Todos</option>
+                <option value="false">No sensible</option>
+                <option value="true">Sensible</option>
+            </InputSelect>
+        </div>
+        <div>
+            <label class="form-label">Jurisdicción</label>
+            <InputSelect class="form-select" @bind-Value="JurisdictionOption">
+                <option value="">Todas</option>
+                <option value="@JurisdictionLevel.State">Estatal</option>
+                <option value="@JurisdictionLevel.Federal">Federal</option>
+            </InputSelect>
+        </div>
+        <div>
+            <label class="form-label">Plantilla</label>
+            <InputSelect class="form-select" @bind-Value="Filter.ProcedureTemplateId">
+                <option value="">Todas</option>
+                @foreach (var option in ProcedureTemplates)
+                {
+                    <option value="@option.Id">@option.Name</option>
+                }
+            </InputSelect>
+        </div>
+    </div>
+
+    <div class="mt-3 d-flex gap-2">
+        <button class="btn btn-dark" @onclick="LoadAsync">Aplicar filtros</button>
+        <button class="btn btn-outline-dark" @onclick="ResetFilters">Limpiar</button>
+    </div>
+</section>
+
+<section class="panel-card mt-4">
+    <div class="section-header">
+        <div>
+            <p class="eyebrow">Resultados</p>
+            <h2>@Cases.Count asunto(s)</h2>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(LoadError))
+    {
+        <div class="alert alert-danger">@LoadError</div>
+    }
+    else if (Cases.Count == 0)
+    {
+        <div class="empty-state">
+            <strong>No hay asuntos para este filtro.</strong>
+            <p>Ajusta los criterios o crea un nuevo expediente.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>Clave</th>
+                        <th>Título</th>
+                        <th>Materia</th>
+                        <th>Estatus</th>
+                        <th>Plantilla</th>
+                        <th>Sede</th>
+                        <th>Apertura</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var legalCase in Cases)
+                    {
+                        <tr class="table-row-link" @onclick="@(() => NavigationManager.NavigateTo($"/cases/{legalCase.Id}"))">
+                            <td>@legalCase.InternalCode</td>
+                            <td>
+                                <div class="d-flex flex-column">
+                                    <strong>@legalCase.Title</strong>
+                                    @if (legalCase.IsSensitive)
+                                    {
+                                        <small class="text-danger">Sensible</small>
+                                    }
+                                </div>
+                            </td>
+                            <td>@legalCase.CategoryName</td>
+                            <td>@legalCase.StatusName</td>
+                            <td>@legalCase.ProcedureTemplateName</td>
+                            <td>@legalCase.VenueState</td>
+                            <td>@legalCase.OpenDate.ToString("dd/MM/yyyy")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private CaseListFilterModel Filter { get; set; } = new();
+
+    private string? SensitiveOption { get; set; }
+
+    private JurisdictionLevel? JurisdictionOption { get; set; }
+
+    private IReadOnlyList<LookupOptionDto> Categories { get; set; } = [];
+    private IReadOnlyList<LookupOptionDto> Statuses { get; set; } = [];
+    private IReadOnlyList<LookupOptionDto> ProcedureTemplates { get; set; } = [];
+    private IReadOnlyList<CaseListItemDto> Cases { get; set; } = [];
+    private string? LoadError { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Categories = await LookupService.GetCaseCategoriesAsync();
+        Statuses = await LookupService.GetCaseStatusesAsync();
+        ProcedureTemplates = await LookupService.GetProcedureTemplatesAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            LoadError = null;
+            Cases = await CaseManagementService.GetCasesAsync(new CaseListFilter(
+                Filter.CaseStatusId,
+                Filter.CaseCategoryId,
+                Filter.ProcedureTemplateId,
+                JurisdictionOption,
+                SensitiveOption is null ? null : bool.Parse(SensitiveOption),
+                Filter.Search));
+        }
+        catch (Exception ex)
+        {
+            LoadError = ex.Message;
+        }
+    }
+
+    private async Task ResetFilters()
+    {
+        Filter = new CaseListFilterModel();
+        SensitiveOption = null;
+        JurisdictionOption = null;
+        await LoadAsync();
+    }
+
+    private sealed class CaseListFilterModel
+    {
+        public int? CaseStatusId { get; set; }
+        public int? CaseCategoryId { get; set; }
+        public int? ProcedureTemplateId { get; set; }
+        public string? Search { get; set; }
+    }
+}
